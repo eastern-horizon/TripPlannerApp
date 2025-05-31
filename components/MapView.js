@@ -1,114 +1,135 @@
 // components/MapView.js
 
-import React, { useState, useEffect } from 'react';
-import { Platform, View, Text, Button } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, StyleSheet, Button, Platform } from 'react-native';
 
-let MapComponent = ({ coordinates, editable, onSave }) => (
-    <View style={{ height: 200, backgroundColor: '#ccc', justifyContent: 'center', alignItems: 'center' }}>
-        <Text>Map not available</Text>
-    </View>
-);
-
-if (Platform.OS === 'web') {
-    const { MapContainer, TileLayer, Polyline, Marker, useMapEvents } = require('react-leaflet');
-    const L = require('leaflet');
-    require('leaflet/dist/leaflet.css');
-
-    MapComponent = ({ coordinates, editable, onSave }) => {
-        const [localCoords, setLocalCoords] = useState(coordinates || []);
-        const [selectedIndex, setSelectedIndex] = useState(null);
-
-        useEffect(() => {
-            setLocalCoords(coordinates || []);
-        }, [coordinates]);
-
-        const addPoint = (e) => {
-            const newPoint = { lat: e.latlng.lat, lng: e.latlng.lng };
-            setLocalCoords([...localCoords, newPoint]);
-        };
-
-        const deleteSelectedPoint = () => {
-            if (selectedIndex !== null && selectedIndex >= 0 && selectedIndex < localCoords.length) {
-                const updated = [...localCoords];
-                updated.splice(selectedIndex, 1);
-                setLocalCoords(updated);
-                setSelectedIndex(null);
-            }
-        };
-
-        const DraggableMarker = ({ point, index }) => {
-            const [position, setPosition] = useState([point.lat, point.lng]);
-
-            return (
-                <Marker
-                    position={position}
-                    draggable={editable}
-                    eventHandlers={{
-                        dragend: (e) => {
-                            const newPos = e.target.getLatLng();
-                            const updated = [...localCoords];
-                            updated[index] = { lat: newPos.lat, lng: newPos.lng };
-                            setLocalCoords(updated);
-                        },
-                        click: () => {
-                            if (editable) {
-                                setSelectedIndex(index);
-                                console.log('Selected marker index:', index);
-                            }
-                        },
-                    }}
-                />
-            );
-        };
-
-        const mapCenter = localCoords.length > 0
-            ? [localCoords[0].lat, localCoords[0].lng]
-            : [39.8283, -98.5795]; // Default: USA center
-
-        const polylinePositions = localCoords.map(coord => [coord.lat, coord.lng]);
-
-        const MapClickHandler = () => {
-            useMapEvents({
-                click: (e) => {
-                    if (editable) addPoint(e);
-                },
-            });
-            return null;
-        };
-
-        return (
-            <View>
-                <MapContainer center={mapCenter} zoom={6} style={{ height: 300, width: '100%', marginVertical: 10 }}>
-                    <TileLayer
-                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    />
-                    <Polyline positions={polylinePositions} color="blue" />
-                    {editable && <MapClickHandler />}
-                    {localCoords.map((point, index) => (
-                        <DraggableMarker key={index} point={point} index={index} />
-                    ))}
-                </MapContainer>
-
-                {editable && (
-                    <View style={{ flexDirection: 'column', alignItems: 'center', marginVertical: 10 }}>
-                        <View style={{ flexDirection: 'row', justifyContent: 'space-around', width: '100%', marginBottom: 10 }}>
-                            <Button title="Save Route" onPress={() => onSave(localCoords)} />
-                            <Button title="Clear Route" onPress={() => { setLocalCoords([]); setSelectedIndex(null); }} />
-                        </View>
-
-                        {selectedIndex !== null && selectedIndex >= 0 && selectedIndex < localCoords.length && (
-                            <View style={{ marginBottom: 10 }}>
-                                <Text>Selected point #{selectedIndex + 1}</Text>
-                                <Button title="Delete Selected Point" onPress={deleteSelectedPoint} />
-                            </View>
-                        )}
-                    </View>
-                )}
-            </View>
-        );
-    };
-}
+const L = require('leaflet');
 
 export default function MapView({ coordinates, editable, onSave }) {
-    return <MapComponent coordinates={coordinates} editable={editable} onSave={onSave} />;
+    const mapRef = useRef(null);
+    const mapInstance = useRef(null);
+    const markerLayer = useRef(null);
+    const polylineLayer = useRef(null);
+
+    const [localCoords, setLocalCoords] = useState([]);
+
+    // Sync with prop
+    useEffect(() => {
+        if (Array.isArray(coordinates)) {
+            const safe = coordinates.filter(c =>
+                typeof c.lat === 'number' && typeof c.lng === 'number'
+            );
+            setLocalCoords(safe);
+        } else {
+            console.warn('MapView received bad coordinates → defaulting to []');
+            setLocalCoords([]);
+        }
+    }, [coordinates]);
+
+    // Init map
+    useEffect(() => {
+        if (Platform.OS === 'web') {
+            if (!mapRef.current) return;
+            if (mapInstance.current) return;
+
+            mapInstance.current = L.map(mapRef.current).setView([39.5, -98.35], 4);
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors',
+            }).addTo(mapInstance.current);
+        }
+    }, []);
+
+    // Render polyline + markers
+    useEffect(() => {
+        if (Platform.OS !== 'web') return;
+        if (!mapInstance.current) return;
+
+        // Clear layers
+        if (polylineLayer.current) {
+            mapInstance.current.removeLayer(polylineLayer.current);
+            polylineLayer.current = null;
+        }
+
+        if (markerLayer.current) {
+            mapInstance.current.removeLayer(markerLayer.current);
+            markerLayer.current = null;
+        }
+
+        const safeCoords = Array.isArray(localCoords) ? localCoords : [];
+
+        if (safeCoords.length === 0) return;
+
+        // Polyline
+        polylineLayer.current = L.polyline(
+            safeCoords.map(coord => [coord.lat, coord.lng]),
+            { color: 'blue' }
+        ).addTo(mapInstance.current);
+
+        mapInstance.current.fitBounds(polylineLayer.current.getBounds(), { padding: [20, 20] });
+
+        // Markers if editable
+        if (editable) {
+            markerLayer.current = L.layerGroup();
+
+            safeCoords.forEach((coord, index) => {
+                const marker = L.marker([coord.lat, coord.lng], { draggable: true });
+
+                marker.on('dragend', (e) => {
+                    const newLatLng = e.target.getLatLng();
+                    const updatedCoords = [...safeCoords];
+                    updatedCoords[index] = { lat: newLatLng.lat, lng: newLatLng.lng };
+                    setLocalCoords(updatedCoords);
+                });
+
+                markerLayer.current.addLayer(marker);
+            });
+
+            markerLayer.current.addTo(mapInstance.current);
+        }
+    }, [localCoords, editable]);
+
+    const handleSave = () => {
+        if (onSave) {
+            console.log('MapView → Saving coordinates:', localCoords);
+            onSave(localCoords);
+        }
+    };
+
+    return (
+        <View style={styles.container}>
+            {Platform.OS === 'web' ? (
+                <>
+                    <div ref={mapRef} style={styles.map} />
+                    {editable && (
+                        <Button title="Save Map Edits" onPress={handleSave} />
+                    )}
+                </>
+            ) : (
+                <View>
+                    <View style={styles.mobilePlaceholder}>
+                        <Button title="Map not supported on Mobile yet" onPress={() => { }} disabled />
+                    </View>
+                </View>
+            )}
+        </View>
+    );
 }
+
+const styles = StyleSheet.create({
+    container: {
+        marginTop: 20,
+        marginBottom: 20,
+    },
+    map: {
+        height: 400,
+        width: '100%',
+        borderWidth: 1,
+        borderColor: '#ccc',
+    },
+    mobilePlaceholder: {
+        height: 200,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+});
