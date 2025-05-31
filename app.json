@@ -7,6 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "tripplanner",
     "userInterfaceStyle": "automatic",
+    "jsEngine": "jsc",
     "extra": {
       "ORS_API_KEY": "5b3ce3597851110001cf6248261c3e987b75430ea995902dc40a0301"
     },

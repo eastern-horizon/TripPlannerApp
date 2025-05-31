@@ -1,85 +1,119 @@
 // screens/TripDetailScreen.js
 
 import React, { useEffect, useState } from 'react';
-import { View, Text, Button, ScrollView } from 'react-native';
-import { getDatabase } from '../src/database/database';
-import { getRequiredPermits } from '../utils/permitEngine';
-import { calculateRemainingHOS, getMaxDrivingHours } from '../utils/hosClock';
+import { View, Text, StyleSheet, Button } from 'react-native';
+import { getDatabase, setupDatabase } from '../src/database/database';
+import MapView from '../components/MapView';
 
-export default function TripDetailScreen({ route, navigation }) {
+export default function TripDetailScreen({ route }) {
     const { tripId } = route.params;
+    const db = getDatabase();
     const [trip, setTrip] = useState(null);
-    const [permits, setPermits] = useState([]);
-    const [hosRemaining, setHosRemaining] = useState(getMaxDrivingHours());
-
-    useEffect(() => {
-        loadTrip();
-    }, []);
+    const [editMode, setEditMode] = useState(false);
 
     const loadTrip = () => {
-        const db = getDatabase();
         db.transaction(tx => {
             tx.executeSql(
                 'SELECT * FROM trips WHERE id = ?;',
                 [tripId],
-                (_, { rows: { _array } }) => {
-                    if (_array.length > 0) {
-                        const t = _array[0];
-                        setTrip(t);
-                        const tripObj = {
-                            height: t.height,
-                            width: t.width,
-                            routeStates: JSON.parse(t.routeStates || "[]")
-                        };
-                        const requiredPermits = getRequiredPermits(tripObj);
-                        setPermits(requiredPermits);
+                (_, { rows }) => {
+                    if (rows.length > 0) {
+                        const row = rows._array[0];
+                        console.log('Trip loaded:', row);
+
+                        let routeStates = [];
+                        try {
+                            routeStates = JSON.parse(row.routeStates);
+                        } catch (e) {
+                            console.warn('Failed to parse routeStates:', row.routeStates);
+                            routeStates = [];
+                        }
+
+                        let routeCoordinates = [];
+                        try {
+                            routeCoordinates = JSON.parse(row.routeCoordinates);
+                        } catch (e) {
+                            console.warn('Failed to parse routeCoordinates:', row.routeCoordinates);
+                            routeCoordinates = [];
+                        }
+
+                        setTrip({
+                            ...row,
+                            routeStates: routeStates,
+                            routeCoordinates: routeCoordinates
+                        });
+                    } else {
+                        console.warn('Trip not found with ID:', tripId);
                     }
                 }
             );
         });
     };
 
-    const simulateDriving = () => {
-        // Example: simulate driving 2 hours (120 mins)
-        const simulatedMinutes = 120;
-        const remaining = calculateRemainingHOS(Date.now(), simulatedMinutes);
-        setHosRemaining(remaining);
+    const saveRoute = (newRouteCoordinates) => {
+        console.log('Saving new routeCoordinates:', newRouteCoordinates);
+        db.transaction(tx => {
+            tx.executeSql(
+                'UPDATE trips SET routeCoordinates = ? WHERE id = ?;',
+                [JSON.stringify(newRouteCoordinates), tripId],
+                () => {
+                    console.log('Route saved');
+                    loadTrip();
+                    setEditMode(false);
+                }
+            );
+        });
     };
+
+    useEffect(() => {
+        setupDatabase();
+        loadTrip();
+    }, [tripId]);
 
     if (!trip) {
         return (
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-                <Text>Loading trip...</Text>
+            <View style={styles.container}>
+                <Text>Loading trip details...</Text>
             </View>
         );
     }
 
     return (
-        <ScrollView style={{ flex: 1, padding: 16 }}>
-            <Text style={{ fontSize: 18, fontWeight: 'bold' }}>
-                Trip {trip.id}: {trip.origin} → {trip.destination}
-            </Text>
+        <View style={styles.container}>
+            <Text style={styles.title}>Trip {trip.id}</Text>
+            <Text>Origin: {trip.origin}</Text>
+            <Text>Destination: {trip.destination}</Text>
             <Text>Height: {trip.height} ft</Text>
             <Text>Width: {trip.width} ft</Text>
-            <Text>States: {JSON.parse(trip.routeStates || "[]").join(', ')}</Text>
+            <Text>Length: {trip.length} ft</Text>
+            <Text>Weight: {trip.weight} lbs</Text>
+            <Text>Route States: {trip.routeStates.join(', ')}</Text>
+            <Text>Created At: {trip.created_at}</Text>
 
-            <View style={{ marginTop: 16 }}>
-                <Text style={{ fontSize: 16, fontWeight: 'bold' }}>Required Permits:</Text>
-                {permits.map((p, index) => (
-                    <Text key={index}>• {p}</Text>
-                ))}
-            </View>
+            <Button
+                title={editMode ? 'Exit Edit Map' : 'Edit Map'}
+                onPress={() => setEditMode(!editMode)}
+            />
 
-            <View style={{ marginTop: 16 }}>
-                <Text style={{ fontSize: 16, fontWeight: 'bold' }}>HOS Clock:</Text>
-                <Text>Remaining Hours: {hosRemaining.toFixed(2)} hrs</Text>
-                <Button title="Simulate 2 hours driving" onPress={simulateDriving} />
-            </View>
-
-            <View style={{ marginTop: 16 }}>
-                <Button title="View Route Map" onPress={() => navigation.navigate('MapScreen', { tripId })} />
-                <Button title="View Logbook" onPress={() => navigation.navigate('LogbookScreen', { tripId })} />
-            </View>
-        </ScrollView>
+            {/* Map below */}
+            <MapView
+                coordinates={trip.routeCoordinates}
+                editable={editMode}
+                onSave={saveRoute}
+            />
+        </View>
     );
 }
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        padding: 20,
+        backgroundColor: '#fff',
+    },
+    title: {
+        fontSize: 20,
+        fontWeight: 'bold',
+        marginBottom: 10,
+    },
+});
