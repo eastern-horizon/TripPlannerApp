@@ -7,7 +7,8 @@ const Polyline = require('react-native-maps').Polyline;
 const Marker = require('react-native-maps').Marker;
 
 export default function MapScreen({ route }) {
-    const { tripId } = route.params;
+    const tripId = route?.params?.tripId ?? null;
+
 
     const waypoints = [
         { latitude: 34.05, longitude: -118.25 },

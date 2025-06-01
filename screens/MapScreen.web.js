@@ -7,7 +7,8 @@ import 'leaflet/dist/leaflet.css';
 import '../src/fixLeafletIcons';  // adjust path if needed
 
 export default function MapScreen({ route }) {
-    const { tripId } = route.params;
+    const tripId = route?.params?.tripId ?? null;
+
 
     const waypoints = [
         [34.05, -118.25],

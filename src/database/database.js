@@ -1,105 +1,102 @@
 // src/database/database.js
 
-let instance = null;
-
-export function setupDatabase() {
-    console.log('InMemoryDB: setupDatabase — no action needed on Web.');
-}
-
-export function getDatabase() {
-    if (!instance) {
-        console.log('Creating SINGLETON InMemoryDB instance');
-        instance = new InMemoryDB();
-    }
-    return instance;
-}
+console.log('Creating SINGLETON InMemoryDB instance');
 
 class InMemoryDB {
     constructor() {
-        this.tables = {
-            trips: [],
-        };
+        this.trips = [];
+        this.logbook = [];
         this.nextTripId = 1;
+        this.nextLogEntryId = 1;
     }
 
-    transaction(callback) {
-        const tx = {
-            executeSql: (sql, params = [], onSuccess, onError) => {
-                console.log('InMemoryDB: executeSql called:', sql, params);
+    setupDatabase() {
+        console.log('InMemoryDB: setupDatabase — no action needed on Web.');
+    }
 
-                if (sql.startsWith('SELECT * FROM trips WHERE id = ?')) {
-                    const id = params[0];
-                    const trip = this.tables.trips.find(t => t.id === id);
-                    if (trip) {
-                        console.log('InMemoryDB: SELECT id', id, '→ rows:', [trip]);
-                        onSuccess?.(null, { rows: { length: 1, _array: [trip] } });
-                    } else {
-                        console.warn('InMemoryDB: Trip not found with id:', id);
-                        onSuccess?.(null, { rows: { length: 0, _array: [] } });
-                    }
-                }
+    // --- TRIPS ---
 
-                else if (sql.startsWith('SELECT * FROM trips')) {
-                    console.log('InMemoryDB: SELECT all trips → rows:', this.tables.trips);
-                    onSuccess?.(null, { rows: { length: this.tables.trips.length, _array: this.tables.trips } });
-                }
+    getAllTrips() {
+        console.log('InMemoryDB: SELECT all trips → rows:', this.trips);
+        return Promise.resolve([...this.trips]);
+    }
 
-                else if (sql.startsWith('INSERT INTO trips')) {
-                    const newTrip = {
-                        id: this.nextTripId++,
-                        origin: params[0],
-                        destination: params[1],
-                        height: params[2],
-                        width: params[3],
-                        length: params[4],
-                        weight: params[5],
-                        routeStates: JSON.stringify(params[6] || []),
-                        routeCoordinates: JSON.stringify(params[7] || []),
-                        created_at: params[8],
-                    };
-                    this.tables.trips.push(newTrip);
-                    console.log('InMemoryDB: Inserted trip:', newTrip);
-                    onSuccess?.(null, { insertId: newTrip.id });
-                }
+    getTripById(tripId) {
+        const trip = this.trips.find(t => t.id === tripId);
+        console.log(`InMemoryDB: SELECT trip id ${tripId} →`, trip ? trip : null);
+        return Promise.resolve(trip ? { ...trip } : null);
+    }
 
-                else if (sql.startsWith('UPDATE trips SET routeCoordinates = ? WHERE id = ?')) {
-                    const routeCoordinates = params[0];
-                    const id = params[1];
-                    const trip = this.tables.trips.find(t => t.id === id);
-                    if (trip) {
-                        trip.routeCoordinates = routeCoordinates;
-                        console.log('InMemoryDB: Updated routeCoordinates for trip id', id);
-                        onSuccess?.(null, { rowsAffected: 1 });
-                    } else {
-                        console.warn('InMemoryDB: Cannot update routeCoordinates — trip id not found:', id);
-                        onSuccess?.(null, { rowsAffected: 0 });
-                    }
-                }
+    insertTrip(trip) {
+        const newTrip = { ...trip, id: this.nextTripId++ };
+        this.trips.push(newTrip);
+        console.log('InMemoryDB: Inserted trip:', newTrip);
+        return Promise.resolve(newTrip.id);
+    }
 
-                else if (sql.startsWith('UPDATE trips SET origin = ?, destination = ? WHERE id = ?')) {
-                    const origin = params[0];
-                    const destination = params[1];
-                    const id = params[2];
+    updateTripOriginDestination(tripId, origin, destination) {
+        const trip = this.trips.find(t => t.id === tripId);
+        if (trip) {
+            trip.origin = origin;
+            trip.destination = destination;
+            console.log(`InMemoryDB: Updated trip id ${tripId} origin/destination`);
+        } else {
+            console.warn(`InMemoryDB: Trip id ${tripId} not found for update`);
+        }
+        return Promise.resolve();
+    }
 
-                    const trip = this.tables.trips.find(t => t.id === id);
-                    if (trip) {
-                        trip.origin = origin;
-                        trip.destination = destination;
-                        console.log('InMemoryDB: Updated trip id', id, 'with new origin/destination');
-                        onSuccess?.(null, { rowsAffected: 1 });
-                    } else {
-                        console.warn('InMemoryDB: Cannot update origin/destination — trip id not found:', id);
-                        onSuccess?.(null, { rowsAffected: 0 });
-                    }
-                }
+    updateTripRouteCoordinates(tripId, coords) {
+        const trip = this.trips.find(t => t.id === tripId);
+        if (trip) {
+            trip.routeCoordinates = JSON.stringify(coords);
+            console.log(`InMemoryDB: Updated trip id ${tripId} routeCoordinates`);
+        } else {
+            console.warn(`InMemoryDB: Trip id ${tripId} not found for route update`);
+        }
+        return Promise.resolve();
+    }
 
-                else {
-                    console.warn('InMemoryDB: Unhandled SQL:', sql);
-                    onError?.(new Error('Unhandled SQL'));
-                }
-            }
+    // --- LOGBOOK ---
+
+    getLogEntries(tripId) {
+        const entries = this.logbook
+            .filter(entry => entry.tripId === tripId)
+            .map(entry => ({ ...entry }));
+
+        console.log(`InMemoryDB: SELECT log entries for trip ${tripId} →`, entries);
+        return Promise.resolve(entries);
+    }
+
+    insertLogEntry(entry) {
+        const newEntry = {
+            id: this.nextLogEntryId++,
+            tripId: entry.tripId,
+            eventType: entry.eventType,
+            timestamp: entry.timestamp,
+            notes: entry.notes
         };
-
-        callback(tx);
+        this.logbook.push(newEntry);
+        console.log('InMemoryDB: Inserted log entry:', newEntry);
+        return Promise.resolve(newEntry.id);
     }
 }
+
+// --- EXPORTS ---
+
+export const database = new InMemoryDB();
+
+export const setupDatabase = () => database.setupDatabase();
+
+// TRIPS
+export const getAllTrips = () => database.getAllTrips();
+export const getTripById = (tripId) => database.getTripById(tripId);
+export const insertTrip = (trip) => database.insertTrip(trip);
+export const updateTripOriginDestination = (tripId, origin, destination) =>
+    database.updateTripOriginDestination(tripId, origin, destination);
+export const updateTripRouteCoordinates = (tripId, coords) =>
+    database.updateTripRouteCoordinates(tripId, coords);
+
+// LOGBOOK
+export const getLogEntries = (tripId) => database.getLogEntries(tripId);
+export const insertLogEntry = (entry) => database.insertLogEntry(entry);

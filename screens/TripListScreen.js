@@ -1,47 +1,64 @@
 // screens/TripListScreen.js
 
 import React, { useEffect, useState } from 'react';
-import { View, Text, Button, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
-import { getDatabase, setupDatabase } from '../src/database/database';
+import { View, Text, Button, FlatList, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import { setupDatabase, getAllTrips, insertTrip } from '../src/database/database';
 
 export default function TripListScreen({ navigation }) {
-    const db = getDatabase();
     const [trips, setTrips] = useState([]);
     const [refreshFlag, setRefreshFlag] = useState(false);
 
-    const loadTrips = () => {
-        db.transaction(tx => {
-            tx.executeSql(
-                'SELECT * FROM trips',
-                [],
-                (_, { rows }) => {
-                    console.log('Trips loaded:', rows._array);
-                    setTrips(rows._array);
-                    setRefreshFlag(flag => !flag);
-                }
-            );
-        });
+    const loadTrips = async () => {
+        const rows = await getAllTrips();
+        console.log('Trips loaded:', rows);
+        setTrips(rows);
+        setRefreshFlag(flag => !flag);
     };
 
-    const addDummyTrip = () => {
+    const addDummyTrip = async () => {
         const now = new Date().toISOString();
 
-        const dummyRoute = JSON.stringify([
+        const dummyRoute = [
             { lat: 34.0522, lng: -118.2437 },
             { lat: 35.1047, lng: -106.6291 },
             { lat: 39.7392, lng: -104.9903 }
-        ]);
+        ];
 
-        db.transaction(tx => {
-            tx.executeSql(
-                'INSERT INTO trips (origin, destination, height, width, length, weight, routeStates, routeCoordinates, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                ['Los Angeles', 'Denver', 14.5, 8.5, 53, 80000, JSON.stringify(["CA", "CO"]), dummyRoute, now],
-                () => {
-                    console.log('Dummy trip inserted → reloading trips');
-                    loadTrips();
+        const newTrip = {
+            origin: 'Los Angeles',
+            destination: 'Denver',
+            height: 14.5,
+            width: 8.5,
+            length: 53,
+            weight: 80000,
+            routeStates: JSON.stringify(["CA", "CO"]),
+            routeCoordinates: JSON.stringify(dummyRoute),
+            created_at: now
+        };
+
+        await insertTrip(newTrip);
+        console.log('Dummy trip inserted → reloading trips');
+        loadTrips();
+    };
+
+    const clearAllTrips = () => {
+        Alert.alert(
+            'Clear All Trips',
+            'Are you sure you want to delete ALL trips?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Yes, Clear All',
+                    style: 'destructive',
+                    onPress: () => {
+                        // Clear trips in memory (safe for InMemoryDB)
+                        trips.splice(0, trips.length);
+                        console.log('All trips cleared!');
+                        loadTrips();
+                    }
                 }
-            );
-        });
+            ]
+        );
     };
 
     useEffect(() => {
@@ -62,6 +79,31 @@ export default function TripListScreen({ navigation }) {
     return (
         <View style={styles.container}>
             <Button title="ADD DUMMY TRIP" onPress={addDummyTrip} />
+
+            <View style={{ height: 10 }} />
+
+            <Button
+                title="Go to Main Menu"
+                onPress={() => navigation.navigate('MainLanding')}
+            />
+
+            <View style={{ height: 10 }} />
+
+            <Button
+                title="Settings"
+                onPress={() => navigation.navigate('Settings')}
+            />
+
+            <View style={{ height: 10 }} />
+
+            <Button
+                title="Clear All Trips"
+                color="red"
+                onPress={clearAllTrips}
+            />
+
+            <View style={{ height: 20 }} />
+
             <FlatList
                 data={trips}
                 keyExtractor={(item) => item.id.toString()}

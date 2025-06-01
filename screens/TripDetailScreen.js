@@ -2,14 +2,18 @@
 
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Button, TextInput, ScrollView } from 'react-native';
-import { getDatabase, setupDatabase } from '../src/database/database';
+import {
+    setupDatabase,
+    getTripById,
+    updateTripOriginDestination,
+    updateTripRouteCoordinates
+} from '../src/database/database';
 import MapView from '../components/MapView';
 import Constants from 'expo-constants';
 import { fetchRouteFromORS, geocodeAddress } from '../utils/ors';
 
 export default function TripDetailScreen({ route }) {
-    const { tripId } = route.params;
-    const db = getDatabase();
+    const tripId = route?.params?.tripId ?? null;
     const [trip, setTrip] = useState(null);
     const [editMode, setEditMode] = useState(false);
 
@@ -23,127 +27,103 @@ export default function TripDetailScreen({ route }) {
     // Routing provider dropdown
     const [routingProvider, setRoutingProvider] = useState('ORS');
 
-    const loadTrip = () => {
-    db.transaction(tx => {
-        tx.executeSql(
-            'SELECT * FROM trips WHERE id = ?;',
-            [tripId],
-            (_, { rows }) => {
-                if (rows.length > 0) {
-                    const row = rows._array[0];
-                    console.log('Trip loaded:', row);
+    const loadTrip = async () => {
+        console.log('Loading tripId:', tripId);
 
-                    // Safe parse routeStates
-                    let routeStates = [];
-                    try {
-                        if (typeof row.routeStates === 'string' && row.routeStates.trim() !== '') {
-                            routeStates = JSON.parse(row.routeStates);
-                            if (!Array.isArray(routeStates)) {
-                                throw new Error('routeStates not array');
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('Failed to parse routeStates — defaulting to empty []');
-                        routeStates = [];
+        const tripData = await getTripById(tripId);
+        console.log('Trip loaded:', tripData);
+
+        if (tripData) {
+            // Safe parse routeStates
+            let routeStates = [];
+            try {
+                if (typeof tripData.routeStates === 'string' && tripData.routeStates.trim() !== '') {
+                    routeStates = JSON.parse(tripData.routeStates);
+                    if (!Array.isArray(routeStates)) {
+                        throw new Error('routeStates not array');
                     }
+                }
+            } catch (e) {
+                console.warn('Failed to parse routeStates — defaulting to empty []');
+                routeStates = [];
+            }
 
-                    // Safe parse routeCoordinates
-                    let routeCoordinates = [];
-                    try {
-                        if (typeof row.routeCoordinates === 'string' && row.routeCoordinates.trim() !== '') {
-                            routeCoordinates = JSON.parse(row.routeCoordinates);
-                            if (!Array.isArray(routeCoordinates)) {
-                                throw new Error('routeCoordinates not array');
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('Failed to parse routeCoordinates — defaulting to empty []');
-                        routeCoordinates = [];
+            // Safe parse routeCoordinates
+            let routeCoordinates = [];
+            try {
+                if (typeof tripData.routeCoordinates === 'string' && tripData.routeCoordinates.trim() !== '') {
+                    routeCoordinates = JSON.parse(tripData.routeCoordinates);
+                    if (!Array.isArray(routeCoordinates)) {
+                        throw new Error('routeCoordinates not array');
                     }
-
-                    // Set trip state
-                    setTrip({
-                        ...row,
-                        routeStates: routeStates,
-                        routeCoordinates: routeCoordinates
-                    });
-
-                    // Initialize input fields
-                    setOriginInput(row.origin);
-                    setDestinationInput(row.destination);
-                } else {
-                    console.warn('Trip not found with ID:', tripId);
                 }
+            } catch (e) {
+                console.warn('Failed to parse routeCoordinates — defaulting to empty []');
+                routeCoordinates = [];
             }
-        );
-    });
-};
 
-
-   const saveTripInfo = () => {
-    console.log('Saving trip info:', originInput, destinationInput);
-
-    // Validation
-    const trimmedOrigin = originInput.trim();
-    const trimmedDestination = destinationInput.trim();
-
-    if (trimmedOrigin === '' || trimmedDestination === '') {
-        console.warn('Origin or Destination is empty — NOT saving.');
-        alert('Please enter both Origin and Destination.');
-        return;
-    }
-
-    db.transaction(tx => {
-        tx.executeSql(
-            'UPDATE trips SET origin = ?, destination = ? WHERE id = ?;',
-            [trimmedOrigin, trimmedDestination, tripId],
-            () => {
-                console.log('Trip info saved');
-                loadTrip();
-            }
-        );
-    });
-};
-
-
-    const saveRoute = (newRouteCoordinates) => {
-    console.log('Saving new routeCoordinates:', newRouteCoordinates);
-
-    // Validate before saving
-    let safeRouteCoordinates = [];
-
-    try {
-        if (Array.isArray(newRouteCoordinates)) {
-            safeRouteCoordinates = newRouteCoordinates.map(coord => {
-                if (typeof coord.lat === 'number' && typeof coord.lng === 'number') {
-                    return { lat: coord.lat, lng: coord.lng };
-                } else {
-                    throw new Error('Invalid coordinate object');
-                }
+            // Set trip state
+            setTrip({
+                ...tripData,
+                routeStates,
+                routeCoordinates
             });
+
+            // Initialize input fields
+            setOriginInput(tripData.origin);
+            setDestinationInput(tripData.destination);
         } else {
-            throw new Error('newRouteCoordinates is not an array');
+            console.warn('Trip not found with ID:', tripId);
         }
-    } catch (err) {
-        console.error('Failed to validate routeCoordinates:', err);
-        console.warn('Saving empty routeCoordinates instead.');
-        safeRouteCoordinates = [];
-    }
+    };
 
-    // Save
-    db.transaction(tx => {
-        tx.executeSql(
-            'UPDATE trips SET routeCoordinates = ? WHERE id = ?;',
-            [JSON.stringify(safeRouteCoordinates), tripId],
-            () => {
-                console.log('Route saved');
-                loadTrip();
-                setEditMode(false);
+    const saveTripInfo = async () => {
+        console.log('Saving trip info:', originInput, destinationInput);
+
+        // Validation
+        const trimmedOrigin = originInput.trim();
+        const trimmedDestination = destinationInput.trim();
+
+        if (trimmedOrigin === '' || trimmedDestination === '') {
+            console.warn('Origin or Destination is empty — NOT saving.');
+            alert('Please enter both Origin and Destination.');
+            return;
+        }
+
+        await updateTripOriginDestination(tripId, trimmedOrigin, trimmedDestination);
+        console.log('Trip info saved');
+        await loadTrip();
+    };
+
+    const saveRoute = async (newRouteCoordinates) => {
+        console.log('Saving new routeCoordinates:', newRouteCoordinates);
+
+        // Validate before saving
+        let safeRouteCoordinates = [];
+
+        try {
+            if (Array.isArray(newRouteCoordinates)) {
+                safeRouteCoordinates = newRouteCoordinates.map(coord => {
+                    if (typeof coord.lat === 'number' && typeof coord.lng === 'number') {
+                        return { lat: coord.lat, lng: coord.lng };
+                    } else {
+                        throw new Error('Invalid coordinate object');
+                    }
+                });
+            } else {
+                throw new Error('newRouteCoordinates is not an array');
             }
-        );
-    });
-};
+        } catch (err) {
+            console.error('Failed to validate routeCoordinates:', err);
+            console.warn('Saving empty routeCoordinates instead.');
+            safeRouteCoordinates = [];
+        }
 
+        await updateTripRouteCoordinates(tripId, safeRouteCoordinates);
+        console.log('Route saved');
+        await loadTrip();
+        setEditMode(false);
+    };
 
     const generateRoute = async () => {
         if (!trip) return;
@@ -170,7 +150,7 @@ export default function TripDetailScreen({ route }) {
             if (routingProvider === 'ORS') {
                 const newRoute = await fetchRouteFromORS(originLatLng, destinationLatLng, apiKey);
                 if (newRoute.length > 0) {
-                    saveRoute(newRoute);
+                    await saveRoute(newRoute);
                 } else {
                     throw new Error('ORS returned empty route.');
                 }

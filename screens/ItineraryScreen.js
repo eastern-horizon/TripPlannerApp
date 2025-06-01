@@ -3,15 +3,15 @@ import React from 'react';
 import { ScrollView, View, Text, StyleSheet } from 'react-native';
 
 export default function ItineraryScreen({ route }) {
-  const {
-    originText,
-    destText,
-    plannedDistance,
-    plannedDuration,
-    routeSteps,
-  } = route.params;
+  // SAFE PARAMS — prevent crash if missing
+  const params = route?.params ?? {};
+  const originText = params.originText ?? '';
+  const destText = params.destText ?? '';
+  const plannedDistance = params.plannedDistance ?? 0;
+  const plannedDuration = params.plannedDuration ?? 0;
+  const routeSteps = Array.isArray(params.routeSteps) ? params.routeSteps : [];
 
-  const hours   = Math.floor(plannedDuration / 3600);
+  const hours = Math.floor(plannedDuration / 3600);
   const minutes = Math.round((plannedDuration % 3600) / 60);
 
   return (
@@ -21,16 +21,22 @@ export default function ItineraryScreen({ route }) {
 
       <View style={styles.summary}>
         <Text style={styles.summaryText}>Distance: {plannedDistance} mi</Text>
-        <Text style={styles.summaryText}>Est. Time: {hours}h{minutes}m</Text>
+        <Text style={styles.summaryText}>Est. Time: {hours}h {minutes}m</Text>
       </View>
 
       <View style={styles.stepsSection}>
         <Text style={styles.sectionHeader}>Route Steps:</Text>
-        {routeSteps.map((step, idx) => (
-          <Text key={idx} style={styles.stepText}>
-            {idx + 1}. {step.instruction} ({(step.distance / 1609.34).toFixed(1)} mi)
+        {routeSteps.length > 0 ? (
+          routeSteps.map((step, idx) => (
+            <Text key={idx} style={styles.stepText}>
+              {idx + 1}. {step.instruction} ({(step.distance / 1609.34).toFixed(1)} mi)
+            </Text>
+          ))
+        ) : (
+          <Text style={{ fontStyle: 'italic', color: '#888' }}>
+            No steps available.
           </Text>
-        ))}
+        )}
       </View>
     </ScrollView>
   );

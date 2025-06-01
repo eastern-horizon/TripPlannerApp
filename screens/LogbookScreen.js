@@ -2,54 +2,46 @@
 
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, TextInput, Button } from 'react-native';
-import { getDatabase } from '../src/database/database';
+import { setupDatabase, getLogEntries, insertLogEntry } from '../src/database/database';
 
 export default function LogbookScreen({ route }) {
-    const { tripId } = route.params;
+    const tripId = route?.params?.tripId ?? null;
+
     const [logEntries, setLogEntries] = useState([]);
     const [eventType, setEventType] = useState('');
     const [notes, setNotes] = useState('');
 
     useEffect(() => {
+        setupDatabase();
         loadLogEntries();
     }, []);
 
-    const loadLogEntries = () => {
-        const db = getDatabase();
-        db.transaction(tx => {
-            tx.executeSql(
-                'SELECT * FROM logbook WHERE trip_id = ? ORDER BY timestamp DESC;',
-                [tripId],
-                (_, { rows: { _array } }) => {
-                    setLogEntries(_array);
-                }
-            );
-        });
+    const loadLogEntries = async () => {
+        const entries = await getLogEntries(tripId);
+        console.log('Loaded log entries:', entries);
+        setLogEntries(entries);
     };
 
-    const addLogEntry = () => {
+    const addLogEntry = async () => {
         if (!eventType) return;
 
-        const db = getDatabase();
         const timestamp = new Date().toISOString();
 
-        db.transaction(tx => {
-            tx.executeSql(
-                `INSERT INTO logbook (trip_id, event_type, timestamp, notes)
-                 VALUES (?, ?, ?, ?);`,
-                [tripId, eventType, timestamp, notes],
-                () => {
-                    setEventType('');
-                    setNotes('');
-                    loadLogEntries();
-                }
-            );
+        await insertLogEntry({
+            tripId,
+            eventType,
+            timestamp,
+            notes
         });
+
+        setEventType('');
+        setNotes('');
+        loadLogEntries();
     };
 
     const renderItem = ({ item }) => (
         <View style={{ padding: 12, borderBottomWidth: 1 }}>
-            <Text style={{ fontWeight: 'bold' }}>{item.event_type} @ {item.timestamp}</Text>
+            <Text style={{ fontWeight: 'bold' }}>{item.eventType} @ {item.timestamp}</Text>
             <Text>{item.notes}</Text>
         </View>
     );
